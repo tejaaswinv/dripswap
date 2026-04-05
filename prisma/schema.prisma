@@ -1,0 +1,257 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  MODERATOR
+  SERVER_ADMIN
+  PLATFORM_ADMIN
+}
+
+enum MembershipRole {
+  MEMBER
+  ORG_ADMIN
+  SERVER_ADMIN
+}
+
+enum MembershipStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+}
+
+enum ItemCondition {
+  NEW
+  LIKE_NEW
+  GOOD
+  FAIR
+  WORN
+}
+
+enum ItemAvailability {
+  AVAILABLE
+  RESERVED
+  BORROWED
+  UNAVAILABLE
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum HandoffStatus {
+  PENDING
+  HANDED_OFF
+  RECEIVED
+}
+
+enum ReturnStatus {
+  NOT_RETURNED
+  RETURNED
+  OVERDUE
+}
+
+enum CleaningStatus {
+  NOT_REQUIRED
+  REQUIRED
+  CLEANED
+}
+
+enum ReportStatus {
+  OPEN
+  REVIEWING
+  RESOLVED
+  DISMISSED
+}
+
+model User {
+  id                String          @id @default(cuid())
+  name              String
+  email             String          @unique
+  passwordHash      String?
+  image             String?
+  role              UserRole        @default(USER)
+  isEmailVerified   Boolean         @default(false)
+  trustScore        Int             @default(50)
+  universityId      String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  university        University?     @relation(fields: [universityId], references: [id])
+  memberships       Membership[]
+  ownedItems        ClothingItem[]  @relation("ItemOwner")
+  borrowRequests    BorrowRequest[]
+  loansAsBorrower   Loan[]          @relation("LoanBorrower")
+  reviewsWritten    Review[]        @relation("Reviewer")
+  reviewsReceived   Review[]        @relation("Reviewee")
+  reportsSubmitted  Report[]        @relation("Reporter")
+
+  @@index([universityId])
+}
+
+model University {
+  id           String       @id @default(cuid())
+  name         String
+  domain       String       @unique
+  isVerified   Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+
+  users        User[]
+  servers      Server[]
+}
+
+model Server {
+  id            String         @id @default(cuid())
+  name          String
+  slug          String         @unique
+  universityId  String
+  description   String?
+  createdById   String
+  createdAt     DateTime       @default(now())
+
+  university    University     @relation(fields: [universityId], references: [id])
+  memberships   Membership[]
+  organizations Organization[]
+  items         ClothingItem[]
+
+  @@index([universityId])
+}
+
+model Organization {
+  id                 String       @id @default(cuid())
+  name               String
+  serverId           String
+  verificationMethod String?
+  inviteCode         String?
+  createdAt          DateTime     @default(now())
+
+  server             Server       @relation(fields: [serverId], references: [id])
+  memberships        Membership[]
+
+  @@index([serverId])
+}
+
+model Membership {
+  id           String            @id @default(cuid())
+  userId       String
+  serverId     String
+  orgId        String?
+  role         MembershipRole    @default(MEMBER)
+  status       MembershipStatus  @default(PENDING)
+  createdAt    DateTime          @default(now())
+
+  user         User              @relation(fields: [userId], references: [id])
+  server       Server            @relation(fields: [serverId], references: [id])
+  organization Organization?     @relation(fields: [orgId], references: [id])
+
+  @@unique([userId, serverId, orgId])
+  @@index([userId])
+  @@index([serverId])
+  @@index([orgId])
+}
+
+model ClothingItem {
+  id                String            @id @default(cuid())
+  ownerId           String
+  serverId          String
+  title             String
+  category          String
+  size              String
+  color             String?
+  brand             String?
+  condition         ItemCondition
+  description       String?
+  imageUrl          String?
+  availability      ItemAvailability  @default(AVAILABLE)
+  cleaningRequired  Boolean           @default(true)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  owner             User              @relation("ItemOwner", fields: [ownerId], references: [id])
+  server            Server            @relation(fields: [serverId], references: [id])
+  requests          BorrowRequest[]
+
+  @@index([ownerId])
+  @@index([serverId])
+  @@index([availability])
+}
+
+model BorrowRequest {
+  id           String         @id @default(cuid())
+  itemId       String
+  borrowerId   String
+  startDate    DateTime
+  endDate      DateTime
+  purpose      String?
+  status       RequestStatus  @default(PENDING)
+  createdAt    DateTime       @default(now())
+
+  item         ClothingItem   @relation(fields: [itemId], references: [id])
+  borrower     User           @relation(fields: [borrowerId], references: [id])
+  loan         Loan?
+
+  @@index([itemId])
+  @@index([borrowerId])
+  @@index([status])
+}
+
+model Loan {
+  id              String          @id @default(cuid())
+  requestId       String          @unique
+  borrowerId      String
+  dueDate         DateTime
+  handoffStatus   HandoffStatus   @default(PENDING)
+  returnStatus    ReturnStatus    @default(NOT_RETURNED)
+  cleaningStatus  CleaningStatus  @default(REQUIRED)
+  completedAt     DateTime?
+  createdAt       DateTime        @default(now())
+
+  request         BorrowRequest   @relation(fields: [requestId], references: [id])
+  borrower        User            @relation("LoanBorrower", fields: [borrowerId], references: [id])
+  reviews         Review[]
+
+  @@index([borrowerId])
+}
+
+model Review {
+  id           String      @id @default(cuid())
+  loanId       String
+  reviewerId   String
+  revieweeId   String
+  rating       Int
+  comment      String?
+  createdAt    DateTime   @default(now())
+
+  loan         Loan       @relation(fields: [loanId], references: [id])
+  reviewer     User       @relation("Reviewer", fields: [reviewerId], references: [id])
+  reviewee     User       @relation("Reviewee", fields: [revieweeId], references: [id])
+
+  @@index([loanId])
+  @@index([reviewerId])
+  @@index([revieweeId])
+}
+
+model Report {
+  id           String        @id @default(cuid())
+  reporterId   String
+  targetType   String
+  targetId     String
+  reason       String
+  details      String?
+  status       ReportStatus  @default(OPEN)
+  createdAt    DateTime      @default(now())
+
+  reporter     User          @relation("Reporter", fields: [reporterId], references: [id])
+
+  @@index([reporterId])
+  @@index([targetType, targetId])
+}
